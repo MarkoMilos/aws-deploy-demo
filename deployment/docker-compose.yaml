@@ -1,0 +1,10 @@
+version: "3.7"
+
+services:
+  server:
+    image: 592532275118.dkr.ecr.eu-central-1.amazonaws.com/node-app:latest
+    restart: always
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env

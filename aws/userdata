@@ -1,0 +1,29 @@
+#!/bin/bash
+# This is AWS user data script that runs on EC2 instance startup
+
+# Update installed packages
+yum update -y
+
+# Install Docker
+yum install -y docker
+service docker start
+usermod -a -G docker ec2-user
+chkconfig docker on
+
+# Install Docker Compose
+curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+chmod +x /usr/local/bin/docker-compose
+
+# Verify Docker and Docker Compose installation
+docker --version
+docker-compose --version
+
+# Uncomment the following lines to install AWS CodeDeploy agent if it is not installed via SSM
+# See: https://docs.aws.amazon.com/codedeploy/latest/userguide/codedeploy-agent-operations-install-linux.html
+# yum install -y ruby
+# yum install -y wget
+# cd /home/ec2-user
+# wget https://aws-codedeploy-eu-central-1.s3.eu-central-1.amazonaws.com/latest/install
+# chmod +x ./install
+# ./install auto
+# service codedeploy-agent start
