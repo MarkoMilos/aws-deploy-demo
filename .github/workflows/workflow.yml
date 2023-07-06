@@ -1,17 +1,82 @@
-name: "Simple echo workflow"
+name: "Build and Deploy"
 
-on: [push]
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+
+permissions:
+  id-token: write # This is required for requesting the JWT
+  contents: read  # This is required for actions/checkout
+
+env:
+  BUILD_SHA: ${{ github.sha }}
 
 jobs:
-  echo-1:
+  build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - name: "Echo job 1 - step 1"
-        run: echo "Echor run 1"
+      - name: "Checkout"
+        uses: actions/checkout@v3
 
-  echo-2:
+      - name: "Configure AWS credentials"
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: "eu-central-1"
+          role-to-assume: "arn:aws:iam::592532275118:role/github-actions-role"
+
+      - name: "Login to Amazon ECR"
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push docker image to Amazon ECR
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: node-app
+        run: |
+          docker build -t $REGISTRY/$REPOSITORY:latest -t $REGISTRY/$REPOSITORY:$BUILD_SHA .
+          docker push --all-tags $REGISTRY/$REPOSITORY
+
+  upload-deployment-revision:
     runs-on: ubuntu-latest
-    needs: echo-1
+    needs: build-and-push
     steps:
-      - name: "Echo job 2 - step 1"
-        run: echo "Echor run 2"
+      - name: "Checkout"
+        uses: actions/checkout@v3
+
+      - name: "Generate deployment .env file"
+        run: echo "BUILD_SHA=$BUILD_SHA" > ./deploy/.env
+
+      - name: "Configure AWS credentials"
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: "eu-central-1"
+          role-to-assume: "arn:aws:iam::592532275118:role/github-actions-role"
+
+      - name: "Upload deployment revision to AWS S3 bucket"
+        run: |
+          aws deploy push \
+          --application-name node-app-application \
+          --description "Deployment revision for build SHA: $BUILD_SHA" \
+          --s3-location s3://node-app-deployment-artifacts/revision-${BUILD_SHA::7}.zip \
+          --source ./deploy        
+
+  create-deployment:
+    runs-on: ubuntu-latest
+    needs: upload-deployment-revision
+    steps:
+      - name: "Configure AWS credentials"
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: "eu-central-1"
+          role-to-assume: "arn:aws:iam::592532275118:role/github-actions-role"
+      
+      - name: "Create deployment on AWS CodeDeploy"
+        run: |
+          aws deploy create-deployment \
+          --application-name node-app-application \
+          --deployment-group-name node-app-deployment-group \
+          --description "Deployment for build SHA: $BUILD_SHA" \
+          --s3-location bucket=node-app-deployment-artifacts,key=revision-${GITHUB_SHA::7}.zip,bundleType=zip \
+          --file-exists-behavior OVERWRITE

@@ -19,6 +19,7 @@ yarn.lock
 .env.development
 .env.test
 .env.production
+*.env
 
 # Ignore build output directories
 dist/
